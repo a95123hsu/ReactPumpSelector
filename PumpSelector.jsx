@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Scatter, ScatterChart } from 'recharts';
-import { Search, RefreshCw, RotateCcw, TrendingUp, Droplets, Building, Home, ChevronDown, ChevronUp } from 'lucide-react';
+import Plot from 'react-plotly.js';
+import { Search, RefreshCw, RotateCcw, TrendingUp, Droplets, ChevronDown, ChevronUp } from 'lucide-react';
+// --- SUPABASE IMPORT ---
+import { createClient } from '@supabase/supabase-js';
+
+// --- SUPABASE INIT ---
+const supabaseUrl = "https://xngugcqehgyppqxuokyy.supabase.co"
+const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZ3VnY3FlaGd5cHBxeHVva3l5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTA3MTc0NSwiZXhwIjoyMDYwNjQ3NzQ1fQ.JjP6iQJwoMdhTDNb-N5rxCsEAHXJbDDvWvusTBQ754I";
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Translation dictionary
 const translations = {
@@ -238,50 +245,6 @@ const translations = {
   }
 };
 
-// Sample pump data - in real app this would come from your API
-const samplePumpData = [
-  {
-    "Model": "HP-100", "Model No.": "HP-100", "Category": "Clean Water", 
-    "Frequency (Hz)": 50, "Phase": 3, "Q Rated/LPM": 120, "Head Rated/M": 25,
-    "Pass Solid Dia(mm)": 0, "Product Link": "https://example.com/hp100"
-  },
-  {
-    "Model": "HP-200", "Model No.": "HP-200", "Category": "Dirty Water", 
-    "Frequency (Hz)": 60, "Phase": 1, "Q Rated/LPM": 200, "Head Rated/M": 15,
-    "Pass Solid Dia(mm)": 10, "Product Link": "https://example.com/hp200"
-  },
-  {
-    "Model": "HP-300", "Model No.": "HP-300", "Category": "Booster", 
-    "Frequency (Hz)": 50, "Phase": 3, "Q Rated/LPM": 300, "Head Rated/M": 35,
-    "Pass Solid Dia(mm)": 0, "Product Link": "https://example.com/hp300"
-  },
-  {
-    "Model": "HP-400", "Model No.": "HP-400", "Category": "High Pressure", 
-    "Frequency (Hz)": 60, "Phase": 3, "Q Rated/LPM": 150, "Head Rated/M": 50,
-    "Pass Solid Dia(mm)": 5, "Product Link": "https://example.com/hp400"
-  }
-];
-
-// Sample curve data
-const sampleCurveData = [
-  {
-    "Model No.": "HP-100",
-    "10M": 180, "15M": 150, "20M": 120, "25M": 80, "30M": 40
-  },
-  {
-    "Model No.": "HP-200", 
-    "5M": 250, "10M": 220, "15M": 180, "20M": 120, "25M": 60
-  },
-  {
-    "Model No.": "HP-300",
-    "15M": 350, "20M": 320, "25M": 280, "30M": 240, "35M": 180, "40M": 100
-  },
-  {
-    "Model No.": "HP-400",
-    "20M": 200, "30M": 180, "40M": 150, "50M": 100, "60M": 50
-  }
-];
-
 // Utility functions
 const getText = (key, lang = "English", params = {}) => {
   let text = translations[lang]?.[key] || translations["English"]?.[key] || key;
@@ -332,15 +295,16 @@ const convertHeadToM = (value, fromUnit) => {
 const PumpSelectionApp = () => {
   // State management
   const [language, setLanguage] = useState("English");
-  const [pumpData, setPumpData] = useState(samplePumpData);
-  const [curveData, setCurveData] = useState(sampleCurveData);
+  const [pumpData, setPumpData] = useState([]);
+  const [curveData, setCurveData] = useState([]);
   const [loading, setLoading] = useState(false);
-  
+  const [dataTimestamp, setDataTimestamp] = useState(null);
+
   // Filter states
   const [category, setCategory] = useState("");
   const [frequency, setFrequency] = useState("");
   const [phase, setPhase] = useState("");
-  
+
   // Application inputs
   const [floors, setFloors] = useState(0);
   const [faucets, setFaucets] = useState(0);
@@ -350,52 +314,163 @@ const PumpSelectionApp = () => {
   const [drainTime, setDrainTime] = useState(0.01);
   const [undergroundDepth, setUndergroundDepth] = useState(0);
   const [particleSize, setParticleSize] = useState(0);
-  
+
   // Manual inputs
   const [flowUnit, setFlowUnit] = useState("L/min");
   const [flowValue, setFlowValue] = useState(0);
   const [headUnit, setHeadUnit] = useState("m");
   const [headValue, setHeadValue] = useState(0);
-  
+
   // Results
-  const [filteredPumps, setFilteredPumps] = useState([]);
   const [selectedPumps, setSelectedPumps] = useState([]);
   const [resultPercent, setResultPercent] = useState(100);
   const [selectedColumns, setSelectedColumns] = useState([]);
   const [showColumnSelection, setShowColumnSelection] = useState(false);
-  
+
+  // All available values for filters
+  const [allCategories, setAllCategories] = useState([]);
+  const [allFrequencies, setAllFrequencies] = useState([]);
+  const [allPhases, setAllPhases] = useState([]);
+
+  // Hardcoded categories list
+  const HARDCODED_CATEGORIES = [
+    "BLDC",
+    "Booster",
+    "Clean Water",
+    "Construction",
+    "Dirty Water",
+    "Grinder",
+    "High Pressure",
+    "Sewage and Wastewater",
+    "Speciality Pump"
+  ];
+
+  // Hardcoded frequency list
+  const HARDCODED_FREQUENCIES = [
+    "50",
+    "60"
+  ];
+
+  // Hardcoded phase list
+  const HARDCODED_PHASES = [
+    "1",
+    "3"
+  ];
+
+  // --- FETCH ALL MATCHING DATA FROM SUPABASE (NO PAGINATION, WITH BATCHING) ---
+useEffect(() => {
+  const fetchAllRows = async (table, filters = {}) => {
+    const batchSize = 1000;
+    let allRows = [];
+    let from = 0;
+    let to = batchSize - 1;
+    let keepGoing = true;
+
+    while (keepGoing) {
+      let query = supabase.from(table).select('*').range(from, to);
+      // Apply filters
+      Object.entries(filters).forEach(([col, val]) => {
+        if (val !== undefined && val !== null && val !== "") {
+          query = query.eq(col, val);
+        }
+      });
+      const { data, error } = await query;
+      if (error) {
+        console.error(`Fetch error for ${table}:`, error);
+        return { error, data: [] };
+      }
+      allRows = allRows.concat(data || []);
+      if (!data || data.length < batchSize) {
+        keepGoing = false;
+      } else {
+        from += batchSize;
+        to += batchSize;
+      }
+    }
+    return { data: allRows };
+  };
+
+  const fetchData = async () => {
+    setLoading(true);
+
+    // Build filters
+    const filters = {};
+    if (category && category !== getText("All Categories", language)) {
+      filters["Category"] = category;
+    }
+if (frequency && frequency !== getText("Show All Frequency", language)) {
+  filters["Frequency_Hz"] = Number(frequency); // Use number if the column is int8
+}
+    if (phase && phase !== getText("Show All Phase", language)) {
+      // Only allow "1 phase" or "3 phase" as filter values
+      if (HARDCODED_PHASES.includes(phase)) {
+        filters["Phase"] = phase;
+      }
+    }
+
+    console.log("Filters being sent to Supabase:", filters);
+
+    // Fetch all pump data in batches
+    const { data: pumpRows, error: pumpError } = await fetchAllRows('pump_selection_data', filters);
+
+    // Fetch all curve data in batches
+    const { data: curveRows, error: curveError } = await fetchAllRows('pump_curve_data');
+
+    if (pumpError || curveError) {
+      console.error("Pump fetch error:", pumpError);
+      console.error("Curve fetch error:", curveError);
+      setPumpData([]);
+      setCurveData([]);
+      setLoading(false);
+      return;
+    }
+    setPumpData(pumpRows || []);
+    setCurveData(curveRows || []);
+    setDataTimestamp(new Date().toLocaleString());
+    setLoading(false);
+  };
+  fetchData();
+}, [category, frequency, phase, language]);
+
+
+// Fetch all unique categories, frequencies, and phases for filter options
+useEffect(() => {
+  // Only set categories and frequencies from hardcoded lists
+  setAllCategories(HARDCODED_CATEGORIES);
+  setAllFrequencies(HARDCODED_FREQUENCIES);
+
+  // Hardcode phases instead of fetching dynamically
+  setAllPhases(HARDCODED_PHASES);
+}, []);
+
   // Calculated values
   const pondVolume = pondLength * pondWidth * pondHeight * 1000;
   const drainTimeMin = drainTime * 60;
   const pondLpm = pondVolume / drainTimeMin || 0;
-  
+
   const autoFlow = category === "Booster" ? Math.max(faucets * 15, pondLpm) : pondLpm;
-  const autoTdh = category === "Booster" ? Math.max(floors * 3.5, pondHeight) : 
-                  (undergroundDepth > 0 ? undergroundDepth : pondHeight);
-  
-  // Get unique values for dropdowns
-  const categories = [...new Set(pumpData.map(p => p.Category))].filter(Boolean);
-  const frequencies = [...new Set(pumpData.map(p => p["Frequency (Hz)"]))].filter(Boolean).sort((a,b) => a-b);
-  const phases = [...new Set(pumpData.map(p => p.Phase))].filter(Boolean).sort((a,b) => a-b);
-  
+  const autoTdh = category === "Booster" ? Math.max(floors * 3.5, pondHeight) :
+    (undergroundDepth > 0 ? undergroundDepth : pondHeight);
+
   // Available columns for selection
   const essentialColumns = ["Model", "Model No."];
   const allColumns = Object.keys(pumpData[0] || {}).filter(col => col !== "DB ID");
   const optionalColumns = allColumns.filter(col => !essentialColumns.includes(col));
-  
+
   // Auto-fill flow and head values
   useEffect(() => {
     if (autoFlow > 0) {
       setFlowValue(convertFlowFromLpm(autoFlow, flowUnit));
     }
+    // eslint-disable-next-line
   }, [autoFlow, flowUnit]);
-  
   useEffect(() => {
     if (autoTdh > 0) {
       setHeadValue(convertHeadFromM(autoTdh, headUnit));
     }
+    // eslint-disable-next-line
   }, [autoTdh, headUnit]);
-  
+
   // Reset function
   const resetInputs = () => {
     setCategory("");
@@ -411,68 +486,33 @@ const PumpSelectionApp = () => {
     setParticleSize(0);
     setFlowValue(0);
     setHeadValue(0);
-    setFilteredPumps([]);
     setSelectedPumps([]);
     setSelectedColumns([]);
   };
-  
+
   // Search function
   const handleSearch = () => {
     setLoading(true);
-    
-    let filtered = [...pumpData];
-    
-    // Apply filters
-    if (category && category !== getText("All Categories", language)) {
-      filtered = filtered.filter(pump => pump.Category === category);
-    }
-    if (frequency && frequency !== getText("Show All Frequency", language)) {
-      filtered = filtered.filter(pump => pump["Frequency (Hz)"] === frequency);
-    }
-    if (phase && phase !== getText("Show All Phase", language)) {
-      filtered = filtered.filter(pump => pump.Phase === phase);
-    }
-    
-    // Convert user input to LPM and meters for filtering
-    const flowLpm = convertFlowToLpm(flowValue, flowUnit);
-    const headM = convertHeadToM(headValue, headUnit);
-    
-    if (flowLpm > 0) {
-      filtered = filtered.filter(pump => pump["Q Rated/LPM"] >= flowLpm);
-    }
-    if (headM > 0) {
-      filtered = filtered.filter(pump => pump["Head Rated/M"] >= headM);
-    }
-    if (particleSize > 0) {
-      filtered = filtered.filter(pump => (pump["Pass Solid Dia(mm)"] || 0) >= particleSize);
-    }
-    
-    // Apply percentage filter
-    const maxToShow = Math.max(1, Math.floor(filtered.length * (resultPercent / 100)));
-    filtered = filtered.slice(0, maxToShow);
-    
-    setFilteredPumps(filtered);
     setSelectedPumps([]);
     setLoading(false);
   };
-  
+
+
   // Toggle pump selection
   const togglePumpSelection = (modelNo) => {
-    setSelectedPumps(prev => 
-      prev.includes(modelNo) 
+    setSelectedPumps(prev =>
+      prev.includes(modelNo)
         ? prev.filter(id => id !== modelNo)
         : [...prev, modelNo]
     );
   };
-  
+
   // Generate curve chart data
   const generateCurveData = (modelNo) => {
     const pump = curveData.find(p => p["Model No."] === modelNo);
     if (!pump) return [];
-    
     const headColumns = Object.keys(pump).filter(col => col.endsWith('M') && col !== 'Max Head(M)');
     const data = [];
-    
     headColumns.forEach(col => {
       const headValue = parseFloat(col.replace('M', ''));
       const flowValue = pump[col];
@@ -484,23 +524,20 @@ const PumpSelectionApp = () => {
         });
       }
     });
-    
     return data.sort((a, b) => a.flow - b.flow);
   };
-  
+
   // Prepare comparison chart data
   const comparisonData = useMemo(() => {
     if (selectedPumps.length === 0) return [];
-    
     const allData = [];
     selectedPumps.forEach(modelNo => {
       const pumpData = generateCurveData(modelNo);
       allData.push(...pumpData);
     });
-    
     return allData;
   }, [selectedPumps, flowUnit, headUnit]);
-  
+
   // Operating point for charts
   const operatingPoint = {
     flow: convertFlowFromLpm(convertFlowToLpm(flowValue, flowUnit), flowUnit),
@@ -546,7 +583,7 @@ const PumpSelectionApp = () => {
             <span className="text-sm text-blue-700">
               {getText("Data loaded", language, {
                 n_records: pumpData.length,
-                timestamp: new Date().toLocaleString()
+                timestamp: dataTimestamp || new Date().toLocaleString()
               })}
             </span>
             <div className="flex space-x-2">
@@ -582,7 +619,7 @@ const PumpSelectionApp = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">{getText("All Categories", language)}</option>
-                {categories.map(cat => (
+                {allCategories.map(cat => (
                   <option key={cat} value={cat}>{getText(cat, language)}</option>
                 ))}
               </select>
@@ -597,7 +634,7 @@ const PumpSelectionApp = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">{getText("Show All Frequency", language)}</option>
-                {frequencies.map(freq => (
+                {allFrequencies.map(freq => (
                   <option key={freq} value={freq}>{freq}</option>
                 ))}
               </select>
@@ -612,7 +649,7 @@ const PumpSelectionApp = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">{getText("Show All Phase", language)}</option>
-                {phases.map(ph => (
+                {allPhases.map(ph => (
                   <option key={ph} value={ph}>{ph}</option>
                 ))}
               </select>
@@ -968,13 +1005,13 @@ const PumpSelectionApp = () => {
         </div>
 
         {/* Results Table */}
-        {filteredPumps.length > 0 && (
+        {pumpData.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
             <h3 className="text-lg font-semibold mb-4">{getText("Matching Pumps", language)}</h3>
             <p className="text-sm text-gray-600 mb-4">
-              {getText("Found Pumps", language, { count: filteredPumps.length })}
+              {getText("Found Pumps", language, { count: pumpData.length })}
             </p>
-            
+
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -1001,7 +1038,7 @@ const PumpSelectionApp = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredPumps.map((pump, index) => (
+                  {pumpData.map((pump, index) => (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <input
@@ -1047,7 +1084,7 @@ const PumpSelectionApp = () => {
         )}
 
         {/* No Results Message */}
-        {filteredPumps.length === 0 && filteredPumps !== null && (
+        {pumpData.length === 0 && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
             <p className="text-yellow-800">{getText("No Matches", language)}</p>
           </div>
@@ -1067,98 +1104,67 @@ const PumpSelectionApp = () => {
               </p>
             </div>
 
-            {/* Performance Comparison Chart */}
+            {/* Performance Comparison Chart with Plotly */}
             <div className="mb-8">
               <h4 className="text-md font-semibold mb-4">{getText("Multiple Curves", language)}</h4>
               <div className="h-96">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={comparisonData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="flow" 
-                      label={{ value: getText("Flow Rate", language, { unit: getText(flowUnit, language) }), position: 'insideBottom', offset: -10 }}
-                    />
-                    <YAxis 
-                      label={{ value: getText("Head", language, { unit: getText(headUnit, language) }), angle: -90, position: 'insideLeft' }}
-                    />
-                    <Tooltip 
-                      labelFormatter={(value) => `Flow: ${value} ${getText(flowUnit, language)}`}
-                      formatter={(value, name) => [`${value} ${getText(headUnit, language)}`, name]}
-                    />
-                    <Legend />
-                    {selectedPumps.map((modelNo, index) => {
+                <Plot
+                  data={
+                    selectedPumps.map((modelNo, index) => {
+                      const pumpCurveData = generateCurveData(modelNo);
+                      const flowArr = pumpCurveData.map(d => d.flow);
+                      const headArr = pumpCurveData.map(d => d.head);
                       const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1'];
-                      return (
-                        <Line
-                          key={modelNo}
-                          type="monotone"
-                          dataKey="head"
-                          data={comparisonData.filter(d => d.model === modelNo)}
-                          stroke={colors[index % colors.length]}
-                          strokeWidth={2}
-                          name={modelNo}
-                          connectNulls={false}
-                        />
-                      );
-                    })}
-                  </LineChart>
-                </ResponsiveContainer>
+                      return {
+                        x: flowArr,
+                        y: headArr,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        name: modelNo,
+                        line: { color: colors[index % colors.length], width: 3, shape: 'spline' },
+                        marker: { size: 8 },
+                        hovertemplate: 'Flow: %{x:.0f}<br>Head: %{y:.0f}<extra></extra>', // <-- add this
+                      };
+                    }).concat(
+                      (operatingPoint.flow > 0 && operatingPoint.head > 0)
+                        ? [{
+                            x: [operatingPoint.flow],
+                            y: [operatingPoint.head],
+                            mode: 'markers+text',
+                            marker: { color: 'red', size: 14, symbol: 'star' },
+                            name: getText("Operating Point", language),
+                            text: [getText("Operating Point", language)],
+                            textposition: 'top center',
+                          }]
+                        : []
+                    )
+                  }
+                  layout={{
+                    autosize: true,
+                    height: 350,
+                    xaxis: {
+                      title: {
+                        text: getText("Flow Rate", language, { unit: getText(flowUnit, language) }),
+                        standoff: 20, // adds space between axis and label
+                      },
+                      // ...other xaxis config...
+                    },
+                    yaxis: {
+                      title: {
+                        text: getText("Head", language, { unit: getText(headUnit, language) }),
+                        standoff: 20, // adds space between axis and label
+                      },
+                      // ...other yaxis config...
+                    },
+                    legend: { orientation: 'h', y: -0.2 },
+                    margin: { t: 30, r: 30, b: 60, l: 60 },
+                  }}
+                  useResizeHandler
+                  style={{ width: "100%", height: "100%" }}
+                  config={{ responsive: true }}
+                />
               </div>
             </div>
-
-            {/* Operating Point Overlay */}
-            {(operatingPoint.flow > 0 && operatingPoint.head > 0) && (
-              <div className="mb-6">
-                <h4 className="text-md font-semibold mb-4">{getText("Operating Point", language)}</h4>
-                <div className="h-96">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ScatterChart>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="flow"
-                        domain={[0, 'dataMax + 50']}
-                        label={{ value: getText("Flow Rate", language, { unit: getText(flowUnit, language) }), position: 'insideBottom', offset: -10 }}
-                      />
-                      <YAxis 
-                        dataKey="head"
-                        domain={[0, 'dataMax + 10']}
-                        label={{ value: getText("Head", language, { unit: getText(headUnit, language) }), angle: -90, position: 'insideLeft' }}
-                      />
-                      <Tooltip 
-                        labelFormatter={(value) => `Flow: ${value} ${getText(flowUnit, language)}`}
-                        formatter={(value) => [`${value} ${getText(headUnit, language)}`, getText("Operating Point", language)]}
-                      />
-                      <Legend />
-                      
-                      {/* Pump curves */}
-                      {selectedPumps.map((modelNo, index) => {
-                        const pumpCurveData = generateCurveData(modelNo);
-                        const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1'];
-                        return (
-                          <Line
-                            key={modelNo}
-                            type="monotone"
-                            dataKey="head"
-                            data={pumpCurveData}
-                            stroke={colors[index % colors.length]}
-                            strokeWidth={2}
-                            name={modelNo}
-                          />
-                        );
-                      })}
-                      
-                      {/* Operating point */}
-                      <Scatter
-                        dataKey="head" 
-                        data={[operatingPoint]}
-                        fill="#ff0000"
-                        name={getText("Operating Point", language)}
-                      />
-                    </ScatterChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
 
             {/* Individual Pump Charts */}
             <div className="space-y-6">
@@ -1173,47 +1179,67 @@ const PumpSelectionApp = () => {
                     </div>
                   );
                 }
-                
+
+                // Prepare data for Plotly
+                const flowArr = pumpCurveData.map(d => d.flow);
+                const headArr = pumpCurveData.map(d => d.head);
+
+                // Operating point marker
+                const opPoint =
+                  operatingPoint.flow > 0 && operatingPoint.head > 0
+                    ? [{
+                        x: [operatingPoint.flow],
+                        y: [operatingPoint.head],
+                        mode: 'markers+text',
+                        marker: { color: 'red', size: 12, symbol: 'star' },
+                        name: getText("Operating Point", language),
+                        text: [getText("Operating Point", language)],
+                        textposition: 'top center',
+                      }]
+                    : [];
+
                 return (
-                  <div key={modelNo} className="border rounded-lg p-4">
+                  <div key={modelNo} className="border rounded-lg p-5 h-[450px]">
                     <h4 className="text-md font-semibold mb-4">
                       {getText("Performance Curve", language, { model: modelNo })}
                     </h4>
                     <div className="h-80">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={pumpCurveData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis 
-                            dataKey="flow"
-                            label={{ value: getText("Flow Rate", language, { unit: getText(flowUnit, language) }), position: 'insideBottom', offset: -10 }}
-                          />
-                          <YAxis 
-                            label={{ value: getText("Head", language, { unit: getText(headUnit, language) }), angle: -90, position: 'insideLeft' }}
-                          />
-                          <Tooltip 
-                            labelFormatter={(value) => `Flow: ${value} ${getText(flowUnit, language)}`}
-                            formatter={(value) => [`${value} ${getText(headUnit, language)}`, 'Head']}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="head"
-                            stroke="#8884d8"
-                            strokeWidth={3}
-                            dot={{ r: 6 }}
-                            name={modelNo}
-                          />
-                          {/* Operating point if within range */}
-                          {(operatingPoint.flow > 0 && operatingPoint.head > 0) && (
-                            <Scatter
-                              dataKey="head"
-                              data={[operatingPoint]}
-                              fill="#ff0000"
-                              shape="star"
-                              name={getText("Operating Point", language)}
-                            />
-                          )}
-                        </LineChart>
-                      </ResponsiveContainer>
+                      <Plot
+                        data={[
+                          {
+                            x: flowArr,
+                            y: headArr,
+                            type: 'scatter',
+                            mode: 'lines+markers',
+                            name: modelNo,
+                            line: { color: '#8884d8', width: 3, shape: 'spline' },
+                            marker: { size: 8 },
+                            hovertemplate: 'Flow: %{x:.0f}<br>Head: %{y:.0f}<extra></extra>', // <-- add this
+                          },
+                          ...opPoint,
+                        ]}
+                        layout={{
+                          autosize: true,
+                          height: 350,
+                          xaxis: {
+                            title: {
+                              text: getText("Flow Rate", language, { unit: getText(flowUnit, language) }),
+                              standoff: 20, // adds space between axis and label
+                            },
+                          },
+                          yaxis: {
+                            title: {
+                              text: getText("Head", language, { unit: getText(headUnit, language) }),
+                              standoff: 20, // adds space between axis and label
+                            },
+                          },
+                          legend: { orientation: 'h', y: -0.2 },
+                          margin: { t: 30, r: 30, b: 60, l: 60 },
+                        }}
+                        useResizeHandler
+                        style={{ width: "100%", height: "100%" }}
+                        config={{ responsive: true }}
+                      />
                     </div>
                   </div>
                 );
