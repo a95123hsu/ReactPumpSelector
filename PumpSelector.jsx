@@ -5,8 +5,8 @@ import { Search, RefreshCw, RotateCcw, TrendingUp, Droplets, ChevronDown, Chevro
 import { createClient } from '@supabase/supabase-js';
 
 // --- SUPABASE INIT ---
-const supabaseUrl = "https://xngugcqehgyppqxuokyy.supabase.co"
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhuZ3VnY3FlaGd5cHBxeHVva3l5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTA3MTc0NSwiZXhwIjoyMDYwNjQ3NzQ1fQ.JjP6iQJwoMdhTDNb-N5rxCsEAHXJbDDvWvusTBQ754I";
+const supabaseUrl = "";
+const supabaseAnonKey = "";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Translation dictionary
