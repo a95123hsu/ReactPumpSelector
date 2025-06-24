@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // --- SUPABASE INIT ---
 const supabaseUrl = "";
-const supabaseAnonKey = "";
+const supabaseAnonKey ="";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Translation dictionary
@@ -358,7 +358,6 @@ const PumpSelectionApp = () => {
   ];
 
   // --- FETCH ALL MATCHING DATA FROM SUPABASE (NO PAGINATION, WITH BATCHING) ---
-useEffect(() => {
   const fetchAllRows = async (table, filters = {}) => {
     const batchSize = 1000;
     let allRows = [];
@@ -393,22 +392,19 @@ useEffect(() => {
   const fetchData = async () => {
     setLoading(true);
 
-    // Build filters
+    // Build filters for Supabase
     const filters = {};
     if (category && category !== getText("All Categories", language)) {
       filters["Category"] = category;
     }
-if (frequency && frequency !== getText("Show All Frequency", language)) {
-  filters["Frequency_Hz"] = Number(frequency); // Use number if the column is int8
-}
+    if (frequency && frequency !== getText("Show All Frequency", language)) {
+      filters["Frequency_Hz"] = Number(frequency);
+    }
     if (phase && phase !== getText("Show All Phase", language)) {
-      // Only allow "1 phase" or "3 phase" as filter values
       if (HARDCODED_PHASES.includes(phase)) {
         filters["Phase"] = phase;
       }
     }
-
-    console.log("Filters being sent to Supabase:", filters);
 
     // Fetch all pump data in batches
     const { data: pumpRows, error: pumpError } = await fetchAllRows('pump_selection_data', filters);
@@ -417,31 +413,55 @@ if (frequency && frequency !== getText("Show All Frequency", language)) {
     const { data: curveRows, error: curveError } = await fetchAllRows('pump_curve_data');
 
     if (pumpError || curveError) {
-      console.error("Pump fetch error:", pumpError);
-      console.error("Curve fetch error:", curveError);
       setPumpData([]);
       setCurveData([]);
       setLoading(false);
       return;
     }
-    setPumpData(pumpRows || []);
+
+    // --- CLIENT-SIDE FILTRATION BASED ON FLOW/HEAD ---
+    // Use flowValue/headValue (manual input or auto-calculated)
+    const requiredFlowLpm = convertFlowToLpm(flowValue, flowUnit);
+    const requiredHeadM = convertHeadToM(headValue, headUnit);
+
+    // Only filter if user has entered a value
+    let filtered = pumpRows;
+    if (requiredFlowLpm > 0) {
+      filtered = filtered.filter(pump => pump["Q Rated/LPM"] >= requiredFlowLpm);
+    }
+    if (requiredHeadM > 0) {
+      filtered = filtered.filter(pump => pump["Head Rated/M"] >= requiredHeadM);
+    }
+
+    // --- RESULT DISPLAY CONTROL: Show top X% of results ---
+    let percent = resultPercent || 100;
+    if (percent < 100 && filtered.length > 0) {
+      // Sort by how close the pump is to the required flow/head (prioritize smallest excess)
+      filtered = filtered
+        .map(pump => ({
+          ...pump,
+          _score: (
+            Math.abs((pump["Q Rated/LPM"] - requiredFlowLpm) / (requiredFlowLpm || 1)) +
+            Math.abs((pump["Head Rated/M"] - requiredHeadM) / (requiredHeadM || 1))
+          )
+        }))
+        .sort((a, b) => a._score - b._score)
+        .slice(0, Math.ceil(filtered.length * percent / 100));
+    }
+
+    setPumpData(filtered);
     setCurveData(curveRows || []);
     setDataTimestamp(new Date().toLocaleString());
     setLoading(false);
   };
-  fetchData();
-}, [category, frequency, phase, language]);
 
-
-// Fetch all unique categories, frequencies, and phases for filter options
-useEffect(() => {
-  // Only set categories and frequencies from hardcoded lists
-  setAllCategories(HARDCODED_CATEGORIES);
-  setAllFrequencies(HARDCODED_FREQUENCIES);
-
-  // Hardcode phases instead of fetching dynamically
-  setAllPhases(HARDCODED_PHASES);
-}, []);
+  // Fetch all unique categories, frequencies, and phases for filter options
+  useEffect(() => {
+    // Only set categories and frequencies from hardcoded lists
+    setAllCategories(HARDCODED_CATEGORIES);
+    setAllFrequencies(HARDCODED_FREQUENCIES);
+    setAllPhases(HARDCODED_PHASES);
+  }, []);
 
   // Calculated values
   const pondVolume = pondLength * pondWidth * pondHeight * 1000;
@@ -492,9 +512,8 @@ useEffect(() => {
 
   // Search function
   const handleSearch = () => {
-    setLoading(true);
     setSelectedPumps([]);
-    setLoading(false);
+    fetchData();
   };
 
 
